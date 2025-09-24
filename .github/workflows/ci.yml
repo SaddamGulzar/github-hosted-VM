@@ -8,26 +8,30 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      # Step 1: Checkout code
+      # Step 1: Checkout your code
       - name: Checkout code
         uses: actions/checkout@v3
 
       # Step 2: Deploy to VM via SSH
-      - name: Deploy to VM
+      - name: Deploy Docker container to VM
         env:
           SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_KEY }}
         run: |
-          # Save the private key
+          # Save the private key and set permissions
           echo "$SSH_PRIVATE_KEY" > key.pem
           chmod 600 key.pem
 
-          # SSH into VM and deploy
+          # SSH into VM and deploy Docker
           ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@100.27.198.192 << 'EOF'
-            # Create project directory if it doesn't exist
+            set -e  # Stop on first error
+
+            echo "Deploying e-learning Docker container..."
+
+            # Ensure project directory exists
             mkdir -p /home/ubuntu/e-learning
             cd /home/ubuntu/e-learning
 
-            # Pull latest code
+            # Pull latest code (optional)
             git reset --hard
             git pull
 
@@ -40,7 +44,7 @@ jobs:
               docker stop e-learning-container
             fi
 
-            # Remove any container with same name (stopped or running)
+            # Remove any existing container with same name (stopped or running)
             if [ "$(docker ps -a -q -f name=e-learning-container)" ]; then
               echo "Removing existing container..."
               docker rm e-learning-container
@@ -49,20 +53,10 @@ jobs:
             # Run new container
             docker run -d -p 8083:8083 --name e-learning-container e-learning:latest
 
-            # Optional: Check container status
-            docker ps -f name=e-learning-container
-          EOF
-
-      # Step 3: Test container response
-      - name: Test container response
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_KEY }}
-        run: |
-          echo "$SSH_PRIVATE_KEY" > key.pem
-          chmod 600 key.pem
-
-          ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@100.27.198.192 << 'EOF'
+            # Wait a few seconds for startup
             sleep 5
+
+            # Test the container is serving content
             if curl -s http://localhost:8083 | grep -q "<html"; then
               echo "✅ Test passed: Container is serving content."
             else
@@ -70,4 +64,6 @@ jobs:
               docker logs e-learning-container || true
               exit 1
             fi
+
+            echo "Deployment completed successfully."
           EOF
